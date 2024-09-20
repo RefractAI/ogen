@@ -74,11 +74,15 @@ def train():
     print(f"VAE: {vae_name}")
     print(f"Cache batch size: {cache_batch_size}")
 
-    transformer = AutoModelForCausalLM.from_pretrained(model_name)
+    if torch.cuda.is_available():
+        from liger_kernel.transformers import AutoLigerKernelForCausalLM
+        transformer = AutoLigerKernelForCausalLM.from_pretrained(model_name)
+    else:
+        transformer = AutoModelForCausalLM.from_pretrained(model_name)
 
     model = OGen(transformer=transformer,num_patches=image_size//patch_size//8, text_seq_len=max_length, patch_size=patch_size)
-    if gradient_checkpointing:
-        model.gradient_checkpointing_enable()
+    model.train()
+    
     
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Total model parameters: {total_params}")
@@ -112,7 +116,7 @@ def train():
     dataloader = DataLoader(cached_dataset, batch_size=cache_batch_size, shuffle=False, num_workers=cache_batch_size, multiprocessing_context='fork' if torch.backends.mps.is_available() else None)
 
     # Optimizer
-    optim = "adamw_schedulefree"
+    optim = args.optimizer
     if optim == "adamw8bit":
         from bitsandbytes.optim import AdamW8bit
         optimizer = AdamW8bit(model.parameters(), lr=learning_rate, betas=(0.9, 0.999))
@@ -178,6 +182,9 @@ def train():
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+    if gradient_checkpointing:
+        model.transformer.gradient_checkpointing_enable()
 
     for epoch in range(start_epoch, num_epochs):
 
